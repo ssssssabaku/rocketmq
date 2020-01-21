@@ -35,16 +35,17 @@ public class MappedFileQueue {
 
     private static final int DELETE_FILES_BATCH_MAX = 10;
 
-    private final String storePath;
+    private final String storePath;//存储目录   mq_home/store/mappedFiles
 
-    private final int mappedFileSize;
+    private final int mappedFileSize;//单个文件存储大小   1G 构造方法中初始化 配置在MessageStoreConfig。mappedFileSizeCommitLog 中
 
+    // mapped文件集合  fileList
     private final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<MappedFile>();
-
+    //创建mappedfile的服务类
     private final AllocateMappedFileService allocateMappedFileService;
 
-    private long flushedWhere = 0;
-    private long committedWhere = 0;
+    private long flushedWhere = 0;//当前刷盘指针,表示该指针之前的数据全部持久化到磁盘
+    private long committedWhere = 0;//当前数据提交指针,内存中butebuffer当前指针 该值大于flushedwhere
 
     private volatile long storeTimestamp = 0;
 
@@ -73,7 +74,7 @@ public class MappedFileQueue {
             }
         }
     }
-
+    //根据存储时间戳来存储消息
     public MappedFile getMappedFileByTime(final long timestamp) {
         Object[] mfs = this.copyMappedFiles(0);
 
@@ -191,19 +192,33 @@ public class MappedFileQueue {
         return 0;
     }
 
+    /**
+     * 获取最后一个 MappedFile，若不存在或文件已满，则进行创建
+     * @param startOffset
+     * @param needCreate
+     * @return
+     */
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
+        // 创建文件开始offset。-1时，不创建， 文件不存在时startOffset == 0
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
 
+        // 再次校验是否存在存储文件
         if (mappedFileLast == null) {
+            /**
+             * fileName[0] = startOffset - (startOffset % this.mappedFileSize)
+             * 计算出来的是，以 this.mappedFileSize 为每个文件大小时，startOffset 所在文件的开始offset
+             */
             createOffset = startOffset - (startOffset % this.mappedFileSize);
         }
 
         if (mappedFileLast != null && mappedFileLast.isFull()) {
+            // 最后一个文件已满
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
 
         if (createOffset != -1 && needCreate) {
+            // 创建文件
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
@@ -454,7 +469,7 @@ public class MappedFileQueue {
 
     /**
      * Finds a mapped file by offset.
-     *
+     *根据 offset查找文件
      * @param offset Offset.
      * @param returnFirstOnNotFound If the mapped file is not found, then return the first one.
      * @return Mapped file or null (when not found and returnFirstOnNotFound is <code>false</code>).

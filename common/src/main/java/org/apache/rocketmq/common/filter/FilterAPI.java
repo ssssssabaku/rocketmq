@@ -36,12 +36,21 @@ public class FilterAPI {
         return simple;
     }
 
+    /**
+     * 根据 Topic 和 订阅表达式 创建订阅数据
+     * @param consumerGroup
+     * @param topic
+     * @param subString
+     * @return
+     * @throws Exception
+     */
     public static SubscriptionData buildSubscriptionData(final String consumerGroup, String topic,
         String subString) throws Exception {
         SubscriptionData subscriptionData = new SubscriptionData();
         subscriptionData.setTopic(topic);
         subscriptionData.setSubString(subString);
 
+        // 处理订阅表达式
         if (null == subString || subString.equals(SubscriptionData.SUB_ALL) || subString.length() == 0) {
             subscriptionData.setSubString(SubscriptionData.SUB_ALL);
         } else {

@@ -23,12 +23,20 @@ import org.apache.rocketmq.common.message.MessageQueue;
 import org.apache.rocketmq.common.protocol.route.QueueData;
 import org.apache.rocketmq.common.protocol.route.TopicRouteData;
 
+/**
+ * 主题路由信息？ 一个topci的路由信息？？
+ */
 public class TopicPublishInfo {
-    private boolean orderTopic = false;
-    private boolean haveTopicRouterInfo = false;
-    private List<MessageQueue> messageQueueList = new ArrayList<MessageQueue>();
+    private boolean orderTopic = false;//是否顺序消息
+    private boolean haveTopicRouterInfo = false;//是否存在路由信息
+    private List<MessageQueue> messageQueueList = new ArrayList<MessageQueue>();//主题队列的消息队列（topic对应的messageQueue）
+    /**
+     * 每选择一次消息队列， 该值会自增l ，如果Integer.MAX_VALUE则重置为0 ，用于选择消息队列
+     * 消息发往哪一个queue
+     * 消息发送队列从0开始,发送时选择消息队列 每发送一次换一个消息队列
+     */
     private volatile ThreadLocalIndex sendWhichQueue = new ThreadLocalIndex();
-    private TopicRouteData topicRouteData;
+    private TopicRouteData topicRouteData;//topic路由信息
 
     public boolean isOrderTopic() {
         return orderTopic;

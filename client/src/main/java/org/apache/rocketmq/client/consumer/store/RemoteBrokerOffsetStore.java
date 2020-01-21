@@ -38,6 +38,8 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 
 /**
  * Remote storage implementation
+ * Consumer 消费进度管理，负责从 Broker 获取消费进度，同步消费进度到 Broker
+ * 不进行加载，实际读取消费进度时，从 Broker 获取。
  */
 public class RemoteBrokerOffsetStore implements OffsetStore {
     private final static InternalLogger log = ClientLogger.getLog();
@@ -87,7 +89,9 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
                     }
                 }
                 case READ_FROM_STORE: {
+
                     try {
+                        // 从 Broker 读取消费进度。
                         long brokerOffset = this.fetchConsumeOffsetFromBroker(mq);
                         AtomicLong offset = new AtomicLong(brokerOffset);
                         this.updateOffset(mq, offset.get(), false);
@@ -111,11 +115,16 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
         return -1;
     }
 
+    /**
+     * 持久化指定消息队列数组的消费进度到 Broker，并移除非指定消息队列。
+     * @param mqs
+     */
     @Override
     public void persistAll(Set<MessageQueue> mqs) {
         if (null == mqs || mqs.isEmpty())
             return;
 
+        // 持久化消息队列
         final HashSet<MessageQueue> unusedMQ = new HashSet<MessageQueue>();
 
         for (Map.Entry<MessageQueue, AtomicLong> entry : this.offsetTable.entrySet()) {
@@ -139,6 +148,7 @@ public class RemoteBrokerOffsetStore implements OffsetStore {
             }
         }
 
+        // 移除不适用的消息队列
         if (!unusedMQ.isEmpty()) {
             for (MessageQueue mq : unusedMQ) {
                 this.offsetTable.remove(mq);

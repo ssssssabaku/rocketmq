@@ -81,13 +81,30 @@ public class RebalancePushImpl extends RebalanceImpl {
         this.getmQClientFactory().sendHeartbeatToAllBrokerWithLock();
     }
 
+    /**
+     * 移除不需要的消息队列相关的信息，并返回是否移除成功。
+     * 1.持久化消费进度，并移除
+     * 2.顺序消费 and集群消费 解锁对该队列的锁定
+     * 集群模式下，Consumer 移除自己的消息队列时，会向 Broker 解锁该消息队列（广播模式下不需要）
+     *
+     * @param mq 消息队列
+     * @param pq 消息处理队列
+     * @return 是否移除成功
+     */
     @Override
     public boolean removeUnnecessaryMessageQueue(MessageQueue mq, ProcessQueue pq) {
+        // 同步队列的消费进度，并移除之。
         this.defaultMQPushConsumerImpl.getOffsetStore().persist(mq);
         this.defaultMQPushConsumerImpl.getOffsetStore().removeOffset(mq);
+        // 集群模式下，顺序消费移除时，解锁对队列的锁定
         if (this.defaultMQPushConsumerImpl.isConsumeOrderly()
             && MessageModel.CLUSTERING.equals(this.defaultMQPushConsumerImpl.messageModel())) {
             try {
+                /**
+                 * 获取消息队消费锁，避免和消息消费队列冲突，如果获取失败，则移除消息队列失败，等待下次重新分配消费队列时，
+                 * 再进行移除。如果未获得锁而进行移除，则可能出现另外的consumer和当前的consume同时消费该消息队列，
+                 * 导致消息无法严格顺序消费
+                 */
                 if (pq.getLockConsume().tryLock(1000, TimeUnit.MILLISECONDS)) {
                     try {
                         return this.unlockDelay(mq, pq);
@@ -110,6 +127,15 @@ public class RebalancePushImpl extends RebalanceImpl {
         return true;
     }
 
+    /**
+     * 延迟解锁broker消息队列锁
+     * 当消息处理队列不存在时，则直接解锁
+     *
+     * 解锁broker消息队列锁。如果消息处理队列存在剩余消息。则延迟解锁broker消息队列锁
+     * @param mq 消息队列
+     * @param pq 消息处理队列
+     * @return 是否解锁成功
+     */
     private boolean unlockDelay(final MessageQueue mq, final ProcessQueue pq) {
 
         if (pq.hasTempMessage()) {
@@ -137,12 +163,20 @@ public class RebalancePushImpl extends RebalanceImpl {
         this.defaultMQPushConsumerImpl.getOffsetStore().removeOffset(mq);
     }
 
+    /**
+     * 计算消息队列开始消费位置
+     * @param mq
+     * @return
+     */
     @Override
     public long computePullFromWhere(MessageQueue mq) {
         long result = -1;
         final ConsumeFromWhere consumeFromWhere = this.defaultMQPushConsumerImpl.getDefaultMQPushConsumer().getConsumeFromWhere();
         final OffsetStore offsetStore = this.defaultMQPushConsumerImpl.getOffsetStore();
         switch (consumeFromWhere) {
+            /**
+             * 一个新的消费集群第一次启动从队列的最后位置开始消费。后续再启动接着上次消费的进度开始消费。
+             */
             case CONSUME_FROM_LAST_OFFSET_AND_FROM_MIN_WHEN_BOOT_FIRST:
             case CONSUME_FROM_MIN_OFFSET:
             case CONSUME_FROM_MAX_OFFSET:
@@ -167,6 +201,9 @@ public class RebalancePushImpl extends RebalanceImpl {
                 }
                 break;
             }
+            /**
+             * 一个新的消费集群第一次启动从队列的最前位置开始消费。后续再启动接着上次消费的进度开始消费。
+             */
             case CONSUME_FROM_FIRST_OFFSET: {
                 long lastOffset = offsetStore.readOffset(mq, ReadOffsetType.READ_FROM_STORE);
                 if (lastOffset >= 0) {
@@ -178,6 +215,9 @@ public class RebalancePushImpl extends RebalanceImpl {
                 }
                 break;
             }
+            /**
+             * 一个新的消费集群第一次启动从指定时间点开始消费。后续再启动接着上次消费的进度开始消费。
+             */
             case CONSUME_FROM_TIMESTAMP: {
                 long lastOffset = offsetStore.readOffset(mq, ReadOffsetType.READ_FROM_STORE);
                 if (lastOffset >= 0) {
@@ -211,6 +251,10 @@ public class RebalancePushImpl extends RebalanceImpl {
         return result;
     }
 
+    /**
+     * 发起消息拉取请求。该调用是PushConsumer不断不断不断拉取消息的起点
+     * @param pullRequestList
+     */
     @Override
     public void dispatchPullRequest(List<PullRequest> pullRequestList) {
         for (PullRequest pullRequest : pullRequestList) {

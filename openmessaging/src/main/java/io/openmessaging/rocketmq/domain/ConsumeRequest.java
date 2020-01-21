@@ -21,8 +21,11 @@ import org.apache.rocketmq.common.message.MessageExt;
 import org.apache.rocketmq.common.message.MessageQueue;
 
 public class ConsumeRequest {
+
     private final MessageExt messageExt;
+    //消息队列
     private final MessageQueue messageQueue;
+    //消息处理队列
     private final ProcessQueue processQueue;
     private long startConsumeTimeMillis;
 

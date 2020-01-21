@@ -849,6 +849,7 @@ public class BrokerController {
     }
 
     public void start() throws Exception {
+        // 启动消息存储，包括启动commitlog的定时刷新、启动消费列队的定时刷新、启动定时的检查和文件清理等
         if (this.messageStore != null) {
             this.messageStore.start();
         }
@@ -862,27 +863,36 @@ public class BrokerController {
         }
 
         if (this.fileWatchService != null) {
+            // 启动重新加载SslContext监听器
             this.fileWatchService.start();
         }
 
+        // 提供broker对外调用的api，例如提供注册/注销broker到NameServer等远程调用
         if (this.brokerOuterAPI != null) {
             this.brokerOuterAPI.start();
         }
 
+        // pull模式的请求处理，在消息到达时进行通知
         if (this.pullRequestHoldService != null) {
             this.pullRequestHoldService.start();
         }
 
+        // 主要用于扫描异常的channel，并在发现异常时进行移除和关闭等处理
+        // 同时会接受一些channel事件，同样进行移除和关闭等处理
         if (this.clientHousekeepingService != null) {
             this.clientHousekeepingService.start();
         }
 
+        // 创建FilterServer，通过调用shell启动命令实现
         if (this.filterServerManager != null) {
             this.filterServerManager.start();
         }
 
+        // 如果是slave角色的broker，启动事务消息检查，遍历未提交、未回滚的部分消息并向生产者发送检查请求以获取事务状态
+        // 进行偏移量的检查和计算等操作，并移除掉需要丢弃的消息
         if (!messageStoreConfig.isEnableDLegerCommitLog()) {
             startProcessorByHa(messageStoreConfig.getBrokerRole());
+            // 处理slave同步操作，同步topic配置、消费者偏移量、延迟偏移量、订阅组配置等信息
             handleSlaveSynchronize(messageStoreConfig.getBrokerRole());
             this.registerBrokerAll(true, false, true);
         }
@@ -929,8 +939,11 @@ public class BrokerController {
     }
 
     public synchronized void registerBrokerAll(final boolean checkOrderConfig, boolean oneway, boolean forceRegister) {
+        // 理论上此时里面还只有系统类topic配置
         TopicConfigSerializeWrapper topicConfigWrapper = this.getTopicConfigManager().buildTopicConfigSerializeWrapper();
 
+        // 如果不是读写权限
+        // 将topicConfigManager中的topic配置都初始化到topicConfigWrapper包装类中---此时理论上只有系统类的topic
         if (!PermName.isWriteable(this.getBrokerConfig().getBrokerPermission())
             || !PermName.isReadable(this.getBrokerConfig().getBrokerPermission())) {
             ConcurrentHashMap<String, TopicConfig> topicConfigTable = new ConcurrentHashMap<String, TopicConfig>();
@@ -943,11 +956,13 @@ public class BrokerController {
             topicConfigWrapper.setTopicConfigTable(topicConfigTable);
         }
 
+        // 判断broker集群中的broker是否需要发送心跳包---发送心跳包时会在nameser中注册broker信息
         if (forceRegister || needRegister(this.brokerConfig.getBrokerClusterName(),
             this.getBrokerAddr(),
             this.brokerConfig.getBrokerName(),
             this.brokerConfig.getBrokerId(),
             this.brokerConfig.getRegisterBrokerTimeoutMills())) {
+            // 将所有broker注册到nameserv
             doRegisterBrokerAll(checkOrderConfig, oneway, topicConfigWrapper);
         }
     }
@@ -989,9 +1004,11 @@ public class BrokerController {
         final int timeoutMills) {
 
         TopicConfigSerializeWrapper topicConfigWrapper = this.getTopicConfigManager().buildTopicConfigSerializeWrapper();
+        // 获取所有的namserser，判断是否有nameserv发生变更
         List<Boolean> changeList = brokerOuterAPI.needRegister(clusterName, brokerAddr, brokerName, brokerId, topicConfigWrapper, timeoutMills);
         boolean needRegister = false;
         for (Boolean changed : changeList) {
+            // 如果存在任意nameser发生变更，则所有nameser都需要重新注册
             if (changed) {
                 needRegister = true;
                 break;

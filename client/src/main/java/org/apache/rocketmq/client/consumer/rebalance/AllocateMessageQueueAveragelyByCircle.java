@@ -25,6 +25,7 @@ import org.apache.rocketmq.common.message.MessageQueue;
 
 /**
  * Cycle average Hashing queue algorithm
+ * 环状分配消息队列
  */
 public class AllocateMessageQueueAveragelyByCircle implements AllocateMessageQueueStrategy {
     private final InternalLogger log = ClientLogger.getLog();
@@ -32,6 +33,7 @@ public class AllocateMessageQueueAveragelyByCircle implements AllocateMessageQue
     @Override
     public List<MessageQueue> allocate(String consumerGroup, String currentCID, List<MessageQueue> mqAll,
         List<String> cidAll) {
+        // 校验参数是否正确
         if (currentCID == null || currentCID.length() < 1) {
             throw new IllegalArgumentException("currentCID is empty");
         }
@@ -51,6 +53,7 @@ public class AllocateMessageQueueAveragelyByCircle implements AllocateMessageQue
             return result;
         }
 
+        // 环状分配
         int index = cidAll.indexOf(currentCID);
         for (int i = index; i < mqAll.size(); i++) {
             if (i % cidAll.size() == index) {

@@ -27,10 +27,17 @@ import org.apache.rocketmq.common.ServiceThread;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.common.utils.ThreadUtils;
 
+/**
+ * 拉取消息服务
+ * 该服务一直不断的从broker拉取消息，并提交到消费任务到 ConsumeMessageService
+ */
 public class PullMessageService extends ServiceThread {
     private final InternalLogger log = ClientLogger.getLog();
+    //消息拉取请求队列
     private final LinkedBlockingQueue<PullRequest> pullRequestQueue = new LinkedBlockingQueue<PullRequest>();
+    // mqclient对象
     private final MQClientInstance mQClientFactory;
+    //定时器，用于延迟提交拉取请求（线程框架 生成一个单线程）
     private final ScheduledExecutorService scheduledExecutorService = Executors
         .newSingleThreadScheduledExecutor(new ThreadFactory() {
             @Override
@@ -43,6 +50,11 @@ public class PullMessageService extends ServiceThread {
         this.mQClientFactory = mQClientFactory;
     }
 
+    /**
+     *执行延迟拉取消息请求
+     * @param pullRequest 请求对象
+     * @param timeDelay 延迟时长
+     */
     public void executePullRequestLater(final PullRequest pullRequest, final long timeDelay) {
         if (!isStopped()) {
             this.scheduledExecutorService.schedule(new Runnable() {
@@ -56,6 +68,10 @@ public class PullMessageService extends ServiceThread {
         }
     }
 
+    /**
+     * 执行立即拉取消息请求
+     * @param pullRequest
+     */
     public void executePullRequestImmediately(final PullRequest pullRequest) {
         try {
             this.pullRequestQueue.put(pullRequest);
@@ -64,6 +80,11 @@ public class PullMessageService extends ServiceThread {
         }
     }
 
+    /**
+     * 执行延迟任务
+     * @param r 任务
+     * @param timeDelay 延迟时长
+     */
     public void executeTaskLater(final Runnable r, final long timeDelay) {
         if (!isStopped()) {
             this.scheduledExecutorService.schedule(r, timeDelay, TimeUnit.MILLISECONDS);
@@ -76,6 +97,7 @@ public class PullMessageService extends ServiceThread {
         return scheduledExecutorService;
     }
 
+    // 拉取消息
     private void pullMessage(final PullRequest pullRequest) {
         final MQConsumerInner consumer = this.mQClientFactory.selectConsumer(pullRequest.getConsumerGroup());
         if (consumer != null) {

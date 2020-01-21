@@ -84,6 +84,9 @@ public class NamesrvController {
 
         this.registerProcessor();
 
+        /**
+         * 定时删除broker信息
+         */
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
 
             @Override

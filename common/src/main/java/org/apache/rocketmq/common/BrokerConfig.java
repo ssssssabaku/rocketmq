@@ -43,7 +43,7 @@ public class BrokerConfig {
     private int brokerPermission = PermName.PERM_READ | PermName.PERM_WRITE;
     private int defaultTopicQueueNums = 8;
     @ImportantField
-    private boolean autoCreateTopicEnable = true;
+    private boolean autoCreateTopicEnable = true;// 是否允许自动创建topic
 
     private boolean clusterTopicEnable = true;
 

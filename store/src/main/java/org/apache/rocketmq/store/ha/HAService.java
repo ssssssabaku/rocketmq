@@ -155,6 +155,7 @@ public class HAService {
 
     /**
      * Listens to slave connections to create {@link HAConnection}.
+     * 接受 slave节点链接
      */
     class AcceptSocketService extends ServiceThread {
         private final SocketAddress socketAddressListen;
@@ -279,6 +280,7 @@ public class HAService {
             synchronized (this.requestsRead) {
                 if (!this.requestsRead.isEmpty()) {
                     for (CommitLog.GroupCommitRequest req : this.requestsRead) {
+                        // 等待Slave上传进度
                         boolean transferOK = HAService.this.push2SlaveMaxOffset.get() >= req.getNextOffset();
                         long waitUntilWhen = HAService.this.defaultMessageStore.getSystemClock().now()
                             + HAService.this.defaultMessageStore.getMessageStoreConfig().getSyncFlushTimeout();
@@ -291,6 +293,7 @@ public class HAService {
                             log.warn("transfer messsage to slave timeout, " + req.getNextOffset());
                         }
 
+                        // 唤醒请求，并设置是否Slave同步成功
                         req.wakeupCustomer(transferOK);
                     }
 
@@ -325,6 +328,9 @@ public class HAService {
         }
     }
 
+    /**
+     * 对 Master节点 连接、读写数据
+     */
     class HAClient extends ServiceThread {
         private static final int READ_MAX_BUFFER_SIZE = 1024 * 1024 * 4;
         private final AtomicReference<String> masterAddress = new AtomicReference<>();
@@ -359,6 +365,11 @@ public class HAService {
             return needHeart;
         }
 
+        /**
+         * 上报进度 slave上master已同步进度
+         * @param maxOffset 进度
+         * @return 是否上报成功
+         */
         private boolean reportSlaveMaxOffset(final long maxOffset) {
             this.reportOffset.position(0);
             this.reportOffset.limit(8);
@@ -432,16 +443,27 @@ public class HAService {
             return true;
         }
 
+        /**
+         * 读取master传输的commitlog数据 并返回是否异常
+         * 如果读取到数据，则写入commitlog
+         * 异常原因:
+         *  1.master传输来的数据offset 不等于slave的commitlog数据嘴阀offset
+         *  2.上报到master进度失败
+         * @return 是否异常
+         */
         private boolean dispatchReadRequest() {
             final int msgHeaderSize = 8 + 4; // phyoffset + size
             int readSocketPos = this.byteBufferRead.position();
 
             while (true) {
+                // 读取到请求
                 int diff = this.byteBufferRead.position() - this.dispatchPosition;
                 if (diff >= msgHeaderSize) {
+                    // 读取masterPhyOffset、bodySize。使用dispatchPostion的原因是：处理数据“粘包”导致数据读取不完整
                     long masterPhyOffset = this.byteBufferRead.getLong(this.dispatchPosition);
                     int bodySize = this.byteBufferRead.getInt(this.dispatchPosition + 8);
 
+                    // 校验 Master传输来的数据offset 是否和 Slave的CommitLog数据最大offset 是否相同。
                     long slavePhyOffset = HAService.this.defaultMessageStore.getMaxPhyOffset();
 
                     if (slavePhyOffset != 0) {
@@ -452,24 +474,30 @@ public class HAService {
                         }
                     }
 
+                    // 读取到消息
                     if (diff >= (msgHeaderSize + bodySize)) {
+                        // 写入CommitLog
                         byte[] bodyData = new byte[bodySize];
                         this.byteBufferRead.position(this.dispatchPosition + msgHeaderSize);
                         this.byteBufferRead.get(bodyData);
 
                         HAService.this.defaultMessageStore.appendToCommitLog(masterPhyOffset, bodyData);
 
+                        // 设置处理到的位置
                         this.byteBufferRead.position(readSocketPos);
                         this.dispatchPosition += msgHeaderSize + bodySize;
 
+                        // 上报到Master进度
                         if (!reportSlaveMaxOffsetPlus()) {
                             return false;
                         }
 
+                        // 继续循环
                         continue;
                     }
                 }
 
+                // 空间写满，重新分配空间
                 if (!this.byteBufferRead.hasRemaining()) {
                     this.reallocateByteBuffer();
                 }
@@ -479,6 +507,7 @@ public class HAService {
 
             return true;
         }
+
 
         private boolean reportSlaveMaxOffsetPlus() {
             boolean result = true;
@@ -544,6 +573,9 @@ public class HAService {
             }
         }
 
+        /**
+         * Slave 主循环，实现了不断不断不断从 Master 传输 CommitLog 数据，上传 Master 自己本地的 CommitLog 已经同步物理位置。
+         */
         @Override
         public void run() {
             log.info(this.getServiceName() + " service started");
@@ -552,6 +584,10 @@ public class HAService {
                 try {
                     if (this.connectMaster()) {
 
+                        /**
+                         * 固定间隔（默认5s）向 Master 上报 Slave 本地 CommitLog 已经同步到的物理位置。该操作还有心跳的作用
+                         */
+                        // 若到满足上报间隔，上报到Master进度
                         if (this.isTimeToReportOffset()) {
                             boolean result = this.reportSlaveMaxOffset(this.currentReportedOffset);
                             if (!result) {
@@ -561,15 +597,21 @@ public class HAService {
 
                         this.selector.select(1000);
 
+                        // 处理读取事件
                         boolean ok = this.processReadEvent();
                         if (!ok) {
                             this.closeMaster();
                         }
 
+                        /**
+                         * 处理 Master 传输 Slave 的 CommitLog 数据。
+                         */
+                        // 若进度有变化，上报到Master进度
                         if (!reportSlaveMaxOffsetPlus()) {
                             continue;
                         }
 
+                        // Master过久未返回数据，关闭连接
                         long interval =
                             HAService.this.getDefaultMessageStore().getSystemClock().now()
                                 - this.lastWriteTimestamp;

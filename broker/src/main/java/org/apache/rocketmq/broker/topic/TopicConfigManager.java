@@ -45,6 +45,9 @@ public class TopicConfigManager extends ConfigManager {
     private static final long LOCK_TIMEOUT_MILLIS = 3000;
     private transient final Lock lockTopicConfigTable = new ReentrantLock();
 
+    /**
+     * topic对应的配置
+     */
     private final ConcurrentMap<String, TopicConfig> topicConfigTable =
         new ConcurrentHashMap<String, TopicConfig>(1024);
     private final DataVersion dataVersion = new DataVersion();
@@ -54,9 +57,14 @@ public class TopicConfigManager extends ConfigManager {
     public TopicConfigManager() {
     }
 
+    /**
+     * 创建系统类topic
+     * @param brokerController
+     */
     public TopicConfigManager(BrokerController brokerController) {
         this.brokerController = brokerController;
         {
+            // 初始化SELF_TEST_TOPIC
             // MixAll.SELF_TEST_TOPIC
             String topic = MixAll.SELF_TEST_TOPIC;
             TopicConfig topicConfig = new TopicConfig(topic);
@@ -66,9 +74,15 @@ public class TopicConfigManager extends ConfigManager {
             this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
         }
         {
-            // MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC
+            // 校验系统配置是否允许自动创建TOPIC，开发环境中一般时允许，测试和生产环境一般时不允许，需要手动创建
+            /**
+             * 目前没看出来 如果允许自动创建topic下 初始化系统topic配置有什么用
+             */
+            // TODO MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC
             if (this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
+                // 创建系统topic放入系统topic列表中
                 String topic = MixAll.AUTO_CREATE_TOPIC_KEY_TOPIC;
+                // 构造函数 初始化topic配置里面的 topicName
                 TopicConfig topicConfig = new TopicConfig(topic);
                 this.systemTopicList.add(topic);
                 topicConfig.setReadQueueNums(this.brokerController.getBrokerConfig()
@@ -77,11 +91,13 @@ public class TopicConfigManager extends ConfigManager {
                     .getDefaultTopicQueueNums());
                 int perm = PermName.PERM_INHERIT | PermName.PERM_READ | PermName.PERM_WRITE;
                 topicConfig.setPerm(perm);
+                // 将topic放入topic配置表里面
                 this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
             }
         }
+
         {
-            // MixAll.BENCHMARK_TOPIC
+            //TODO MixAll.BENCHMARK_TOPIC 这个topic不知道干嘛的
             String topic = MixAll.BENCHMARK_TOPIC;
             TopicConfig topicConfig = new TopicConfig(topic);
             this.systemTopicList.add(topic);
@@ -91,6 +107,7 @@ public class TopicConfigManager extends ConfigManager {
         }
         {
 
+            //TODO 创建默认的集群topic 目前不知道意义
             String topic = this.brokerController.getBrokerConfig().getBrokerClusterName();
             TopicConfig topicConfig = new TopicConfig(topic);
             this.systemTopicList.add(topic);
@@ -103,6 +120,7 @@ public class TopicConfigManager extends ConfigManager {
         }
         {
 
+            // 增加topic 名为LOCALSHOTNAME的topic
             String topic = this.brokerController.getBrokerConfig().getBrokerName();
             TopicConfig topicConfig = new TopicConfig(topic);
             this.systemTopicList.add(topic);
@@ -116,6 +134,7 @@ public class TopicConfigManager extends ConfigManager {
             this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
         }
         {
+            // 添加topic 从名称看貌似时坚挺 OFFSET使用
             // MixAll.OFFSET_MOVED_EVENT
             String topic = MixAll.OFFSET_MOVED_EVENT;
             TopicConfig topicConfig = new TopicConfig(topic);
@@ -125,6 +144,7 @@ public class TopicConfigManager extends ConfigManager {
             this.topicConfigTable.put(topicConfig.getTopicName(), topicConfig);
         }
         {
+            // 消息轨迹收集topic？？
             if (this.brokerController.getBrokerConfig().isTraceTopicEnable()) {
                 String topic = this.brokerController.getBrokerConfig().getMsgTraceTopicName();
                 TopicConfig topicConfig = new TopicConfig(topic);
@@ -135,6 +155,7 @@ public class TopicConfigManager extends ConfigManager {
             }
         }
         {
+            // 不知其解
             String topic = this.brokerController.getBrokerConfig().getBrokerClusterName() + "_" + MixAll.REPLY_TOPIC_POSTFIX;
             TopicConfig topicConfig = new TopicConfig(topic);
             this.systemTopicList.add(topic);

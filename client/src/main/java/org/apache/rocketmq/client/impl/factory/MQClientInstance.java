@@ -85,6 +85,10 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 import org.apache.rocketmq.remoting.netty.NettyClientConfig;
 import org.apache.rocketmq.remoting.protocol.RemotingCommand;
 
+
+/**
+ * 封装对 Namesrv，Broker 的 API调用，提供给 Producer、Consumer 使用
+ */
 public class MQClientInstance {
     private final static long LOCK_TIMEOUT_MILLIS = 3000;
     private final InternalLogger log = ClientLogger.getLog();
@@ -466,6 +470,9 @@ public class MQClientInstance {
         }
     }
 
+    /**
+     * 发送心跳到broker，上传过滤类源码到filtersrv
+     */
     public void sendHeartbeatToAllBrokerWithLock() {
         if (this.lockHeartbeat.tryLock()) {
             try {
@@ -580,6 +587,9 @@ public class MQClientInstance {
         }
     }
 
+    /**
+     * 上传过滤类到filtersrv
+     */
     private void uploadFilterClassSource() {
         Iterator<Entry<String, MQConsumerInner>> it = this.consumerTable.entrySet().iterator();
         while (it.hasNext()) {
@@ -610,6 +620,7 @@ public class MQClientInstance {
             if (this.lockNamesrv.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
                     TopicRouteData topicRouteData;
+                    // 使用默认的主题去查找路由信息
                     if (isDefault && defaultMQProducer != null) {
                         topicRouteData = this.mQClientAPIImpl.getDefaultTopicRouteInfoFromNameServer(defaultMQProducer.getCreateTopicKey(),
                             1000 * 3);
@@ -621,9 +632,11 @@ public class MQClientInstance {
                             }
                         }
                     } else {
+                        // 使用入参的topic查询
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, 1000 * 3);
                     }
                     if (topicRouteData != null) {
+                        // 用找到的路由信息和本地的路由信息进行比对，如果没有发生变化则返回false
                         TopicRouteData old = this.topicRouteTable.get(topic);
                         boolean changed = topicRouteDataIsChange(old, topicRouteData);
                         if (!changed) {
@@ -632,6 +645,7 @@ public class MQClientInstance {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
                         }
 
+                        // 本地缓存的路由信息和nameser查找到的路由信息发生变化
                         if (changed) {
                             TopicRouteData cloneTopicRouteData = topicRouteData.cloneTopicRouteData();
 
@@ -974,11 +988,19 @@ public class MQClientInstance {
         this.rebalanceService.wakeup();
     }
 
+    /**
+     * 遍历当前 Client 包含的 consumerTable( Consumer集合 )，执行消息队列分配
+     */
     public void doRebalance() {
         for (Map.Entry<String, MQConsumerInner> entry : this.consumerTable.entrySet()) {
             MQConsumerInner impl = entry.getValue();
             if (impl != null) {
                 try {
+                    /**
+                     * 调用 MQConsumerInner#doRebalance(...) 进行队列分配。
+                     * DefaultMQPushConsumerImpl、DefaultMQPullConsumerImpl 分别对该接口方法进行了实现,
+                     * DefaultMQPushConsumerImpl#doRebalance
+                     */
                     impl.doRebalance();
                 } catch (Throwable e) {
                     log.error("doRebalance exception", e);
@@ -1034,21 +1056,31 @@ public class MQClientInstance {
         return null;
     }
 
+    /**
+     * 获取broker信息
+     * 获取 Broker 信息(Broker 地址、是否为从节点)
+     * @param brokerName broker名字
+     * @param brokerId broker编号
+     * @param onlyThisBroker 是否必须是该broker
+     * @return Broker信息
+     */
     public FindBrokerResult findBrokerAddressInSubscribe(
         final String brokerName,
         final long brokerId,
         final boolean onlyThisBroker
     ) {
-        String brokerAddr = null;
-        boolean slave = false;
-        boolean found = false;
+        String brokerAddr = null; // broker地址
+        boolean slave = false; // 是否为从节点
+        boolean found = false; // 是否找到
 
+        // 获得Broker信息
         HashMap<Long/* brokerId */, String/* address */> map = this.brokerAddrTable.get(brokerName);
         if (map != null && !map.isEmpty()) {
             brokerAddr = map.get(brokerId);
             slave = brokerId != MixAll.MASTER_ID;
             found = brokerAddr != null;
 
+            // 如果不强制获得，选择一个Broker
             if (!found && !onlyThisBroker) {
                 Entry<Long, String> entry = map.entrySet().iterator().next();
                 brokerAddr = entry.getValue();
@@ -1057,10 +1089,11 @@ public class MQClientInstance {
             }
         }
 
+        // 找到broker，则返回信息
         if (found) {
             return new FindBrokerResult(brokerAddr, slave, findBrokerVersion(brokerName, brokerAddr));
         }
-
+// 找不到，则返回空
         return null;
     }
 

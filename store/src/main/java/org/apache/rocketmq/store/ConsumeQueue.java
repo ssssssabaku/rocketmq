@@ -25,6 +25,22 @@ import org.apache.rocketmq.logging.InternalLoggerFactory;
 import org.apache.rocketmq.store.config.BrokerRole;
 import org.apache.rocketmq.store.config.StorePathConfigHelper;
 
+/**
+ * 每个消息消费这的topic都只关心自己topic下的消息，那么如果每个topic都去commitlog文件下查找自己的消息,而每个topic下的消息在
+ * commitlog下又不是连续存储的，所以如果这种方式查找自己topic下的消息，是极度不现实的
+ * 所以rokcetmq使用了另一种方式实现，当消息到达commitlog时会由另外的线程将消息映射到topic下具体实现为:
+ * rocketmq会会每一个topic单独建立一个文件夹 每个topic下又分别为不同的序列建立文件夹
+ *
+ * 格式:
+ * consumqueue
+ *  topicName
+ *      topicQueue
+ *          messageFile
+ *
+ * 存储
+ * ReputMessageService write ConsumeQueue
+ * FlushConsumeQueueService ：flush ConsumeQueue
+ */
 public class ConsumeQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
@@ -376,9 +392,15 @@ public class ConsumeQueue {
         return this.minLogicOffset / CQ_STORE_UNIT_SIZE;
     }
 
+    /**
+     * 添加位置信息封装
+     * 添加位置信息到 ConsumeQueue 的封装，实际需要调用putMessagePositionInfo
+     * @param request
+     */
     public void putMessagePositionInfoWrapper(DispatchRequest request) {
         final int maxRetries = 30;
         boolean canWrite = this.defaultMessageStore.getRunningFlags().isCQWriteable();
+        // 多次循环写，直到成功 判断 ConsumeQueue 是否允许写入。当发生Bug时，不允许写入
         for (int i = 0; i < maxRetries && canWrite; i++) {
             long tagsCode = request.getTagsCode();
             if (isExtWriteEnable()) {
@@ -395,13 +417,16 @@ public class ConsumeQueue {
                         topic, queueId, request.getCommitLogOffset());
                 }
             }
+            //调用 添加位置信息
             boolean result = this.putMessagePositionInfo(request.getCommitLogOffset(),
                 request.getMsgSize(), tagsCode, request.getConsumeQueueOffset());
             if (result) {
+
                 if (this.defaultMessageStore.getMessageStoreConfig().getBrokerRole() == BrokerRole.SLAVE ||
                     this.defaultMessageStore.getMessageStoreConfig().isEnableDLegerCommitLog()) {
                     this.defaultMessageStore.getStoreCheckpoint().setPhysicMsgTimestamp(request.getStoreTimestamp());
                 }
+                // 添加成功 使用消息存储时间 作为check point TODO 重要内容
                 this.defaultMessageStore.getStoreCheckpoint().setLogicsMsgTimestamp(request.getStoreTimestamp());
                 return;
             } else {
@@ -422,25 +447,41 @@ public class ConsumeQueue {
         this.defaultMessageStore.getRunningFlags().makeLogicsQueueError();
     }
 
+    /**
+     * 添加位置信息，并返回是否添加成功
+     * @param offset
+     * @param size
+     * @param tagsCode
+     * @param cqOffset
+     * @return
+     */
     private boolean putMessagePositionInfo(final long offset, final int size, final long tagsCode,
         final long cqOffset) {
 
+        /**
+         * 如果已经重放过，直接返回成功
+         */
         if (offset + size <= this.maxPhysicOffset) {
             log.warn("Maybe try to build consume queue repeatedly maxPhysicOffset={} phyOffset={}", maxPhysicOffset, offset);
             return true;
         }
 
+        // 写入位置信息到bytebuffer
         this.byteBufferIndex.flip();
         this.byteBufferIndex.limit(CQ_STORE_UNIT_SIZE);
         this.byteBufferIndex.putLong(offset);
         this.byteBufferIndex.putInt(size);
         this.byteBufferIndex.putLong(tagsCode);
 
+        // 计算consumeQueue存储位置，并获得对应的MappedFile
         final long expectLogicOffset = cqOffset * CQ_STORE_UNIT_SIZE;
 
         MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile(expectLogicOffset);
         if (mappedFile != null) {
 
+            /**
+             * 当是ConsumeQueue第一个MappedFile && 队列位置非第一个 && MappedFile未写入内容，则填充前置空白占位
+             */
             if (mappedFile.isFirstCreateInQueue() && cqOffset != 0 && mappedFile.getWrotePosition() == 0) {
                 this.minLogicOffset = expectLogicOffset;
                 this.mappedFileQueue.setFlushedWhere(expectLogicOffset);
@@ -450,6 +491,9 @@ public class ConsumeQueue {
                     + mappedFile.getWrotePosition());
             }
 
+            /**
+             * 校验consumeQueue存储位置是否合法。TODO 如果不合法，继续写入会不会有问题？
+             */
             if (cqOffset != 0) {
                 long currentLogicOffset = mappedFile.getWrotePosition() + mappedFile.getFileFromOffset();
 
@@ -470,18 +514,29 @@ public class ConsumeQueue {
                     );
                 }
             }
+            /**
+             * 设置commitLog重放消息到ConsumeQueue位置
+             */
             this.maxPhysicOffset = offset + size;
+            // 插入mappedFile
             return mappedFile.appendMessage(this.byteBufferIndex.array());
         }
         return false;
     }
 
+    /**
+     * 填充前置空白占位
+     * @param mappedFile
+     * @param untilWhere consumeQueue存储位置
+     */
     private void fillPreBlank(final MappedFile mappedFile, final long untilWhere) {
+        // 写入前置空白占位到byteBuffer
         ByteBuffer byteBuffer = ByteBuffer.allocate(CQ_STORE_UNIT_SIZE);
         byteBuffer.putLong(0L);
         byteBuffer.putInt(Integer.MAX_VALUE);
         byteBuffer.putLong(0L);
 
+        // 循环填空
         int until = (int) (untilWhere % this.mappedFileQueue.getMappedFileSize());
         for (int i = 0; i < until; i += CQ_STORE_UNIT_SIZE) {
             mappedFile.appendMessage(byteBuffer.array());

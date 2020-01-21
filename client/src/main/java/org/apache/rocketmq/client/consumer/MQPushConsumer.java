@@ -23,6 +23,7 @@ import org.apache.rocketmq.client.exception.MQClientException;
 
 /**
  * Push consumer
+ * 推模式消费者API
  */
 public interface MQPushConsumer extends MQConsumer {
     /**
@@ -37,12 +38,14 @@ public interface MQPushConsumer extends MQConsumer {
 
     /**
      * Register the message listener
+     *
      */
     @Deprecated
     void registerMessageListener(MessageListener messageListener);
 
+    //注册并发消息坚挺 -- 根据入参
     void registerMessageListener(final MessageListenerConcurrently messageListener);
-
+    //注册顺序消费时间监听器
     void registerMessageListener(final MessageListenerOrderly messageListener);
 
     /**
@@ -51,16 +54,19 @@ public interface MQPushConsumer extends MQConsumer {
      * @param subExpression subscription expression.it only support or operation such as "tag1 || tag2 || tag3" <br> if
      * null or * expression,meaning subscribe
      * all
+     * 基于主题订阅消息
      */
     void subscribe(final String topic, final String subExpression) throws MQClientException;
 
     /**
      * This method will be removed in the version 5.0.0,because filterServer was removed,and method <code>subscribe(final String topic, final MessageSelector messageSelector)</code>
      * is recommended.
+     * 基于主题订阅消息，消息过滤是用类模式
      *
      * Subscribe some topic
-     *
+     *过滤类全路径名
      * @param fullClassName full class name,must extend org.apache.rocketmq.common.filter. MessageFilter
+     *                      过滤类代码
      * @param filterClassSource class source code,used UTF-8 file encoding,must be responsible for your code safety
      */
     @Deprecated
@@ -88,7 +94,7 @@ public interface MQPushConsumer extends MQConsumer {
 
     /**
      * Unsubscribe consumption some topic
-     *
+     *取消消息订阅
      * @param topic message topic
      */
     void unsubscribe(final String topic);

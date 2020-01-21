@@ -58,12 +58,18 @@ public class LocalFileOffsetStore implements OffsetStore {
             "offsets.json";
     }
 
+    /**
+     * 从本地文件加载消费进度到内存。
+     * @throws MQClientException
+     */
     @Override
     public void load() throws MQClientException {
+        // 从本地硬盘读取消费进度
         OffsetSerializeWrapper offsetSerializeWrapper = this.readLocalOffset();
         if (offsetSerializeWrapper != null && offsetSerializeWrapper.getOffsetTable() != null) {
             offsetTable.putAll(offsetSerializeWrapper.getOffsetTable());
 
+            // 打印每个消息队列的消费进度
             for (MessageQueue mq : offsetSerializeWrapper.getOffsetTable().keySet()) {
                 AtomicLong offset = offsetSerializeWrapper.getOffsetTable().get(mq);
                 log.info("load consumer's offset, {} {} {}",
@@ -108,6 +114,7 @@ public class LocalFileOffsetStore implements OffsetStore {
                 case READ_FROM_STORE: {
                     OffsetSerializeWrapper offsetSerializeWrapper;
                     try {
+                        //：从 文件 读取消费进度
                         offsetSerializeWrapper = this.readLocalOffset();
                     } catch (MQClientException e) {
                         return -1;
@@ -128,6 +135,10 @@ public class LocalFileOffsetStore implements OffsetStore {
         return -1;
     }
 
+    /**
+     * 持久化消费进度。将消费进度写入文件。
+     * @param mqs
+     */
     @Override
     public void persistAll(Set<MessageQueue> mqs) {
         if (null == mqs || mqs.isEmpty())

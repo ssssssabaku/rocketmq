@@ -22,13 +22,23 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
+/**
+ * 消息封装类
+ */
 public class Message implements Serializable {
     private static final long serialVersionUID = 8445773977080406428L;
 
-    private String topic;
-    private int flag;
-    private Map<String, String> properties;
-    private byte[] body;
+    private String topic;// 主题
+    private int flag;// 消息flag
+    /**
+     * 扩展属性
+     * TAG:消息过滤
+     * keys:索引键，用多个空格隔开，rocketmq可以根据这些key快速检索到消息
+     * waitstoremsgok:消息发送时是否等消息存储完成后再返回
+     * delaytimelevel：消息延迟级别，用于定时消息或消息重试
+     */
+    private Map<String, String> properties;//扩展属性
+    private byte[] body;// 消息体
     private String transactionId;
 
     public Message() {

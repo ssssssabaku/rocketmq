@@ -49,10 +49,14 @@ public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
-    private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
+    private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;// 存放topic下对应的broker
+    // 一个brokerName 可以有多个brokerid(master-slave结构)，所以一个brokerName会有对应多个broker
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
+    //Broker 集群信息，存储集群中所有Broker 名称
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    //Broker 状态信息。NameServer 每次收到心跳包时会替换该信息
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+    //Broker 上的FilterServer 列表，用于类模式消息过滤
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
     public RouteInfoManager() {
@@ -111,8 +115,10 @@ public class RouteInfoManager {
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
             try {
+                // 加锁的目的时防止并发修改路由信息表
                 this.lock.writeLock().lockInterruptibly();
 
+                // 判断是否存在集群名，不存在则新建 后将broker添加进去
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
@@ -142,6 +148,7 @@ public class RouteInfoManager {
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
                 registerFirst = registerFirst || (null == oldAddr);
 
+                // 如果时master情况下 broker信息发生变更或者时首次注册 则进行更新或新增 topic对应的broker信息
                 if (null != topicConfigWrapper
                     && MixAll.MASTER_ID == brokerId) {
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
@@ -156,6 +163,7 @@ public class RouteInfoManager {
                     }
                 }
 
+                // 注册或更新broker信息
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                     new BrokerLiveInfo(
                         System.currentTimeMillis(),
@@ -174,6 +182,7 @@ public class RouteInfoManager {
                     }
                 }
 
+                // 如果是slave
                 if (MixAll.MASTER_ID != brokerId) {
                     String masterAddr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
                     if (masterAddr != null) {
@@ -222,6 +231,7 @@ public class RouteInfoManager {
         queueData.setPerm(topicConfig.getPerm());
         queueData.setTopicSynFlag(topicConfig.getTopicSysFlag());
 
+        // 如果topicQueueTable中不存在topic的信息，则创建新的queuedata信息(broker列表)放入topicQueueTable中
         List<QueueData> queueDataList = this.topicQueueTable.get(topicConfig.getTopicName());
         if (null == queueDataList) {
             queueDataList = new LinkedList<QueueData>();
@@ -385,6 +395,9 @@ public class RouteInfoManager {
         try {
             try {
                 this.lock.readLock().lockInterruptibly();
+                //获取topci下的队列信息 每个topci都有多个队列
+                // 一个topic拥有多个消息队列 一个broker默认为每个topic生成4个度队列和四个写队列 多个broker组成一个集群
+                // brokername由多个相同的broker组成 master-slave结构 brokerid为0的为master 大于0表示slave
                 List<QueueData> queueDataList = this.topicQueueTable.get(topic);
                 if (queueDataList != null) {
                     topicRouteData.setQueueDatas(queueDataList);
@@ -426,11 +439,17 @@ public class RouteInfoManager {
         return null;
     }
 
+    /**
+     * 检查nameser是否超过120s没有收到broker的心跳包
+     * 如果没有则对broker信息进行删除
+     */
     public void scanNotActiveBroker() {
+        //
         Iterator<Entry<String, BrokerLiveInfo>> it = this.brokerLiveTable.entrySet().iterator();
         while (it.hasNext()) {
             Entry<String, BrokerLiveInfo> next = it.next();
             long last = next.getValue().getLastUpdateTimestamp();
+            //上次更新时间+配置的120s 是否小于当前时间
             if ((last + BROKER_CHANNEL_EXPIRED_TIME) < System.currentTimeMillis()) {
                 RemotingUtil.closeChannel(next.getValue().getChannel());
                 it.remove();
@@ -439,6 +458,7 @@ public class RouteInfoManager {
             }
         }
     }
+
 
     public void onChannelDestroy(String remoteAddr, Channel channel) {
         String brokerAddrFound = null;
@@ -753,6 +773,7 @@ public class RouteInfoManager {
 }
 
 class BrokerLiveInfo {
+    // 上一次更新时间
     private long lastUpdateTimestamp;
     private DataVersion dataVersion;
     private Channel channel;

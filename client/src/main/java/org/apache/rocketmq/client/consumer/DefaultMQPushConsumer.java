@@ -668,15 +668,17 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
     }
 
     /**
+     * 发送消息ACK确认
+     *
      * Send message back to the broker whose name is <code>brokerName</code> and the message will be re-delivered in
      * future.
      *
      * This method will be removed or it's visibility will be changed in a certain version after April 5, 2020, so
      * please do not use this method.
      *
-     * @param msg Message to send back.
-     * @param delayLevel delay level.
-     * @param brokerName broker name.
+     * @param msg Message to send back. 消息
+     * @param delayLevel delay level. 延迟级别
+     * @param brokerName broker name.消息服务器名称
      * @throws RemotingException if there is any network-tier error.
      * @throws MQBrokerException if there is any broker error.
      * @throws InterruptedException if the thread is interrupted.
@@ -690,6 +692,12 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
         this.defaultMQPushConsumerImpl.sendMessageBack(msg, delayLevel, brokerName);
     }
 
+    /**
+     * 获取消费者对主题分配了哪些消息队列
+     * @param topic message topic 主题名称
+     * @return
+     * @throws MQClientException
+     */
     @Override
     public Set<MessageQueue> fetchSubscribeMessageQueues(String topic) throws MQClientException {
         return this.defaultMQPushConsumerImpl.fetchSubscribeMessageQueues(withNamespace(topic));
@@ -733,7 +741,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Register a callback to execute on message arrival for concurrent consuming.
-     *
+     *注册并发消息监听器
      * @param messageListener message handling callback.
      */
     @Override
@@ -744,7 +752,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Register a callback to execute on message arrival for orderly consuming.
-     *
+     *注册顺序消息监听器
      * @param messageListener message handling callback.
      */
     @Override
@@ -755,8 +763,8 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Subscribe a topic to consuming subscription.
-     *
-     * @param topic topic to subscribe.
+     *基于主题订阅消息
+     * @param topic topic to subscribe. 消息主题
      * @param subExpression subscription expression.it only support or operation such as "tag1 || tag2 || tag3" <br>
      * if null or * expression,meaning subscribe all
      * @throws MQClientException if there is any client error.
@@ -768,9 +776,11 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Subscribe a topic to consuming subscription.
-     *
-     * @param topic topic to consume.
+     *基于主题订阅消息，消息过滤方式使用类模式
+     * @param topic topic to consume.消息主题
+     *              过滤类全路径名
      * @param fullClassName full class name,must extend org.apache.rocketmq.common.filter. MessageFilter
+     *                      过滤类代码
      * @param filterClassSource class source code,used UTF-8 file encoding,must be responsible for your code safety
      */
     @Override
@@ -793,7 +803,7 @@ public class DefaultMQPushConsumer extends ClientConfig implements MQPushConsume
 
     /**
      * Un-subscribe the specified topic from subscription.
-     *
+     *取消消息订阅
      * @param topic message topic
      */
     @Override

@@ -32,12 +32,12 @@ public class HAConnection {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private final HAService haService;
     private final SocketChannel socketChannel;
-    private final String clientAddr;
-    private WriteSocketService writeSocketService;
-    private ReadSocketService readSocketService;
+    private final String clientAddr;// 客户端链接地址
+    private WriteSocketService writeSocketService;// 服务端向从服务器写数据服务(主服务器向从服务器写数据服务)
+    private ReadSocketService readSocketService;// 服务端从从服务器读取数据服务类
 
-    private volatile long slaveRequestOffset = -1;
-    private volatile long slaveAckOffset = -1;
+    private volatile long slaveRequestOffset = -1;// 从服务器请求拉取数据的偏移量
+    private volatile long slaveAckOffset = -1;// 从服务器反馈已经拉取完成的数据偏移量
 
     public HAConnection(final HAService haService, final SocketChannel socketChannel) throws IOException {
         this.haService = haService;
@@ -83,12 +83,12 @@ public class HAConnection {
      * 写到往 slave节点的数据
      */
     class ReadSocketService extends ServiceThread {
-        private static final int READ_MAX_BUFFER_SIZE = 1024 * 1024;
-        private final Selector selector;
-        private final SocketChannel socketChannel;
-        private final ByteBuffer byteBufferRead = ByteBuffer.allocate(READ_MAX_BUFFER_SIZE);
-        private int processPosition = 0;
-        private volatile long lastReadTimestamp = System.currentTimeMillis();
+        private static final int READ_MAX_BUFFER_SIZE = 1024 * 1024;// 网络读取缓存区大小
+        private final Selector selector;//NIO网络事件选择器
+        private final SocketChannel socketChannel;// 网络通道
+        private final ByteBuffer byteBufferRead = ByteBuffer.allocate(READ_MAX_BUFFER_SIZE);//网络读写缓存区
+        private int processPosition = 0;// 当前处理指针
+        private volatile long lastReadTimestamp = System.currentTimeMillis();// 上次读取数据的时间戳
 
         public ReadSocketService(final SocketChannel socketChannel) throws IOException {
             this.selector = RemotingUtil.openSelector();
@@ -165,6 +165,8 @@ public class HAConnection {
                         readSizeZeroTimes = 0;
                         // 设置最后读取时间
                         this.lastReadTimestamp = HAConnection.this.haService.getDefaultMessageStore().getSystemClock().now();
+                        // 读取到的数据长度大于8 表明收到从服务器一条消息拉取的请求.
+                        // 由于有新的服务器反馈拉取偏移量，服务端会通知由于同步等待HA复制结果而阻塞的消息发送者线程
                         if ((this.byteBufferRead.position() - this.processPosition) >= 8) {
                             // 读取Slave 请求来的CommitLog的最大位置
                             int pos = this.byteBufferRead.position() - (this.byteBufferRead.position() % 8);
@@ -187,6 +189,7 @@ public class HAConnection {
                             break;
                         }
                     } else {
+                        // 返回false一位置消息服务器关闭该链接
                         log.error("read socket[" + HAConnection.this.clientAddr + "] < 0");
                         return false;
                     }
@@ -236,7 +239,9 @@ public class HAConnection {
                     }
 
                     // 计算初始化nextTransferFromWhere
+                    // -1 表示第一次进行数据传输 计算待传输的物理偏移量
                     if (-1 == this.nextTransferFromWhere) {
+                        // 如果 为0 则从当前commitlog文件最大偏移量开始传输
                         if (0 == HAConnection.this.slaveRequestOffset) {
                             long masterOffset = HAConnection.this.haService.getDefaultMessageStore().getCommitLog().getMaxOffset();
                             masterOffset =
@@ -250,6 +255,7 @@ public class HAConnection {
 
                             this.nextTransferFromWhere = masterOffset;
                         } else {
+                            // 不为0根据服务器的拉取请求偏移量开始传输
                             this.nextTransferFromWhere = HAConnection.this.slaveRequestOffset;
                         }
 
@@ -257,8 +263,10 @@ public class HAConnection {
                             + "], and slave request " + HAConnection.this.slaveRequestOffset);
                     }
 
+                    // 判断上次写事件是否已将信息全部写入客户端
                     if (this.lastWriteOver) {
 
+                        // 当前系统时间与上次最后写入时间 间隔大于HA心跳包
                         long interval =
                             HAConnection.this.haService.getDefaultMessageStore().getSystemClock().now() - this.lastWriteTimestamp;
 
@@ -283,7 +291,8 @@ public class HAConnection {
                             continue;
                     }
 
-                    // 选择新的CommitLog数据进行传输
+                    // 选择新的CommitLog数据进行传输-传输消息到从服务器
+                    // 根据消息从服务器请求的待拉取的偏移量，查找偏移量之后的所有消息
                     SelectMappedBufferResult selectResult =
                         HAConnection.this.haService.getDefaultMessageStore().getCommitLogData(this.nextTransferFromWhere);
                     if (selectResult != null) {

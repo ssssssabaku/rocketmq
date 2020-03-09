@@ -414,22 +414,31 @@ public class HAService {
             this.byteBufferBackup = tmp;
         }
 
+        /**
+         * 从msager服务器传回的消息数据
+         * @return
+         */
         private boolean processReadEvent() {
             int readSizeZeroTimes = 0;
+
             while (this.byteBufferRead.hasRemaining()) {
                 try {
+                    // 从网络通道读取数据
                     int readSize = this.socketChannel.read(this.byteBufferRead);
                     if (readSize > 0) {
                         readSizeZeroTimes = 0;
+                        //将消息追加到内存映射文件中-(commitlog) 追加完成 -重复循环追加
                         boolean result = this.dispatchReadRequest();
                         if (!result) {
                             log.error("HAClient, dispatchReadRequest error");
                             return false;
                         }
+                        // 连续三次读取没有读取到数据 则直接返回
                     } else if (readSize == 0) {
                         if (++readSizeZeroTimes >= 3) {
                             break;
                         }
+                        // 读取到的数据小于0 ||或异常 返回false
                     } else {
                         log.info("HAClient, processReadEvent read socket < 0");
                         return false;
@@ -597,7 +606,7 @@ public class HAService {
 
                         this.selector.select(1000);
 
-                        // 处理读取事件
+                        // 处理读取事件(从master服务器传回的消息数据)
                         boolean ok = this.processReadEvent();
                         if (!ok) {
                             this.closeMaster();

@@ -88,6 +88,7 @@ public class PullMessageProcessor implements NettyRequestProcessor {
     }
 
     /**
+     * PULL_MESSAGE
      * 处理拉取消息请求，返回响应
      * @param channel
      * @param request

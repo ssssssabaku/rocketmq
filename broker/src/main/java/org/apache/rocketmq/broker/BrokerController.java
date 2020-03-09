@@ -850,6 +850,7 @@ public class BrokerController {
 
     public void start() throws Exception {
         // 启动消息存储，包括启动commitlog的定时刷新、启动消费列队的定时刷新、启动定时的检查和文件清理等
+        // 主从机制启动
         if (this.messageStore != null) {
             this.messageStore.start();
         }
